@@ -11,7 +11,9 @@ from torch.utils.data import Dataset
 
 
 class GalaxyZooDecalsDataset(Dataset):
-    def __init__(self, root: Union[str, Path], transform=None, n_rows=None):
+    def __init__(
+        self, root: Union[str, Path], transform=None, n_rows=None, label_cols=None
+    ):
         if isinstance(root, str):
             root = Path(root)
 
@@ -26,7 +28,10 @@ class GalaxyZooDecalsDataset(Dataset):
             self.df = self.df.head(n_rows)
 
         self.X = self.df.select("image_path").to_series()
-        self.Y = self.df.select(cs.ends_with("debiased"))
+        if label_cols:
+            self.Y = self.df.select(label_cols)
+        else:
+            self.Y = self.df.select(cs.ends_with("debiased"))
 
     def __len__(self):
         return len(self.df)
