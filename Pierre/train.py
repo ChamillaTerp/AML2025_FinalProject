@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import wandb
+import torcheval.metrics as metrics
 
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm.auto import tqdm
@@ -43,12 +44,18 @@ class Trainer:
             },
         )
 
+        # Metrics
+        self.metrics = {
+            "accuracy": metrics.MultilabelAccuracy(),
+            "auprc": metrics.MultilabelAUPRC(num_labels=self.model.output_dim),
+        }
+
         # Data
         self.train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
         self.test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
         # Model
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.BCEWithLogitsLoss()
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
         self.epoch = 0
 
@@ -74,16 +81,29 @@ class Trainer:
             outputs = self.model(X)
             loss = self.criterion(outputs, Y)
 
+        # Update metrics
+        for metric in self.metrics.values():
+            metric.update(outputs, Y)
+
         return loss.item()
 
-    def evaluate(self):
+    def evaluate(self) -> dict:
         total_loss = 0.0
+
         with torch.no_grad():
             for X, Y in self.test_loader:
                 loss = self._test_step(X, Y)
                 total_loss += loss
 
-        return total_loss / len(self.test_loader)
+        # Calculate metrics
+        for metric_name, metric in self.metrics.items():
+            metric_value = metric.compute()
+            self.run.log({metric_name: metric_value})
+            metric.reset()
+
+        test_loss = total_loss / len(self.test_loader)
+
+        return test_loss
 
     def save_model(self):
         artifact_name = f"{self.model_name}-{self.run.id}-e{self.epoch:02d}"
@@ -115,7 +135,6 @@ class Trainer:
 
                 self.run.log(
                     {
-                        "epoch": epoch + 1,
                         "train_loss": train_loss,
                         "test_loss": test_loss,
                     }
