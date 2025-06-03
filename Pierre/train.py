@@ -95,8 +95,9 @@ class Trainer:
             loss = self.criterion(outputs, Y)
 
         # Update metrics
+        predictions = F.sigmoid(outputs)
         for metric in self.metrics.values():
-            metric.update(outputs, Y)
+            metric.update(predictions, Y)
 
         return loss.item()
 
