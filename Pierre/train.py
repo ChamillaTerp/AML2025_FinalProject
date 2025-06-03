@@ -20,6 +20,7 @@ class Trainer:
         batch_size: int = 32,
         lr: float = 0.001,
         model_root: str = "./models",
+        train_transform: Optional[nn.Module] = None,
     ):
         self.device = (
             device if device else "cuda" if torch.cuda.is_available() else "cpu"
@@ -48,15 +49,23 @@ class Trainer:
         self.metrics = {
             "accuracy": metrics.MultilabelAccuracy(),
             "auprc": metrics.MultilabelAUPRC(num_labels=self.model.output_dim),
+            "top3_accuracy": metrics.TopKMultilabelAccuracy(k=3),
         }
 
         # Data
         self.train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
         self.test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
+        # Transforms
+        self.train_transform = train_transform
+
         # Model
         self.criterion = nn.BCEWithLogitsLoss()
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            self.optimizer, T_0=len(self.train_loader), T_mult=2, eta_min=1e-6
+        )
+
         self.epoch = 0
 
     def _train_step(self, X, Y):
@@ -64,11 +73,15 @@ class Trainer:
         X = X.to(self.device)
         Y = Y.to(self.device)
 
+        if self.train_transform:
+            X = self.train_transform(X)
+
         self.optimizer.zero_grad()
         outputs = self.model(X)
         loss = self.criterion(outputs, Y)
         loss.backward()
         self.optimizer.step()
+        self.scheduler.step()
 
         return loss.item()
 
@@ -141,6 +154,7 @@ class Trainer:
                     {
                         "epoch": epoch,
                         "train_loss": train_loss,
+                        "learning_rate": self.scheduler.get_last_lr()[0],
                     }
                     | eval_results
                 )
@@ -164,6 +178,10 @@ def main():
             transforms.ToDtype(torch.float32, scale=True),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
+    )
+
+    extra_train_transform = transforms.AutoAugment(
+        policy=transforms.AutoAugmentPolicy.IMAGENET
     )
 
     dataset = GalaxyZooDecalsDataset(
@@ -193,10 +211,11 @@ def main():
         test_dataset=test_dataset,
         device="cuda" if torch.cuda.is_available() else "cpu",
         batch_size=48,
-        lr=5e-4,
+        lr=0.001,
+        train_transform=extra_train_transform,
     )
 
-    trainer.train(epochs=25)
+    trainer.train(epochs=50)
 
 
 if __name__ == "__main__":
