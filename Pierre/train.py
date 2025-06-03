@@ -96,14 +96,14 @@ class Trainer:
                 total_loss += loss
 
         # Calculate metrics
+        metrics_results = {
+            "test_loss": total_loss / len(self.test_loader),
+        }
         for metric_name, metric in self.metrics.items():
-            metric_value = metric.compute()
-            self.run.log({metric_name: metric_value})
+            metrics_results[metric_name] = metric.compute()
             metric.reset()
 
-        test_loss = total_loss / len(self.test_loader)
-
-        return test_loss
+        return metrics_results
 
     def save_model(self):
         artifact_name = f"{self.model_name}-{self.run.id}-e{self.epoch:02d}"
@@ -113,6 +113,8 @@ class Trainer:
         self.run.log_artifact(model_path, type="model")
 
     def train(self, epochs: int = 10):
+        print(f"Training {self.model_name} for {epochs} epochs...")
+        print(f"Training on {len(self.train_loader)} batches of size {self.batch_size}")
         total_steps = self.batch_size * len(self.train_loader) * epochs
 
         with tqdm(
@@ -121,6 +123,8 @@ class Trainer:
             unit="img",
         ) as progress_bar:
             for epoch in range(epochs):
+                self.epoch += 1
+
                 train_loss = 0.0
                 for X, Y in self.train_loader:
                     loss = self._train_step(X, Y)
@@ -130,21 +134,21 @@ class Trainer:
                 train_loss /= len(self.train_loader)
                 progress_bar.set_postfix({"loss": train_loss})
 
-                test_loss = self.evaluate()
-                progress_bar.set_postfix({"test_loss": test_loss})
+                eval_results = self.evaluate()
+                progress_bar.set_postfix({"test_loss": eval_results["test_loss"]})
 
                 self.run.log(
                     {
+                        "epoch": epoch,
                         "train_loss": train_loss,
-                        "test_loss": test_loss,
                     }
+                    | eval_results
                 )
                 self.save_model()
 
                 print(
-                    f"Epoch {epoch + 1}/{epochs}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}"
+                    f"Epoch {epoch}/{epochs}, Train Loss: {train_loss:.4f}, Test Loss: {eval_results['test_loss']:.4f}"
                 )
-                self.epoch += 1
 
         self.run.finish()
 
@@ -163,7 +167,19 @@ def main():
     )
 
     dataset = GalaxyZooDecalsDataset(
-        root="./Pierre/dataset", n_rows=1000, transform=transform
+        root="./Pierre/dataset",
+        n_rows=None,
+        transform=transform,
+        label_cols=[
+            "smooth-or-featured_smooth_debiased",
+            "smooth-or-featured_featured-or-disk_debiased",
+            "smooth-or-featured_artifact_debiased",
+            "disk-edge-on_yes_debiased",
+            "disk-edge-on_no_debiased",
+            "bar_strong_debiased",
+            "bar_weak_debiased",
+            "bar_no_debiased",
+        ],
     )
     print(f"Dataset loaded with {len(dataset)} samples.")
 
@@ -176,11 +192,11 @@ def main():
         train_dataset=train_dataset,
         test_dataset=test_dataset,
         device="cuda" if torch.cuda.is_available() else "cpu",
-        batch_size=32,
-        lr=0.001,
+        batch_size=48,
+        lr=5e-4,
     )
 
-    trainer.train(epochs=10)
+    trainer.train(epochs=25)
 
 
 if __name__ == "__main__":
