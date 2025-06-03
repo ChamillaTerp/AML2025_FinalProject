@@ -20,7 +20,9 @@ class EfficientNetZooModel(nn.Module):
             param.requires_grad = True
 
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(512, 10))
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.2), nn.Linear(1280, self.output_dim)
+        )
 
         for m in self.classifier.modules():
             if isinstance(m, nn.Conv2d):

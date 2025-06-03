@@ -2,9 +2,11 @@ import torch
 import torch.nn as nn
 import wandb
 
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm.auto import tqdm
 from typing import Optional
+
+from pathlib import Path
 
 
 class Trainer:
@@ -16,15 +18,19 @@ class Trainer:
         device: Optional[str] = None,
         batch_size: int = 32,
         lr: float = 0.001,
+        model_root: str = "./models",
     ):
         self.device = (
             device if device else "cuda" if torch.cuda.is_available() else "cpu"
         )
         self.model = model.to(self.device)
+        self.model_name = model.__class__.__name__
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
         self.batch_size = batch_size
         self.lr = lr
+        self.model_root = Path(model_root)
+        self.model_root.mkdir(parents=True, exist_ok=True)
 
         # WandB
         self.run = wandb.init(
@@ -33,15 +39,18 @@ class Trainer:
             config={
                 "batch_size": batch_size,
                 "learning_rate": lr,
-                "model": model.__class__.__name__,
+                "model": self.model_name,
             },
         )
 
+        # Data
         self.train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
         self.test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
+        # Model
         self.criterion = nn.MSELoss()
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+        self.epoch = 0
 
     def _train_step(self, X, Y):
         self.model.train()
@@ -76,6 +85,13 @@ class Trainer:
 
         return total_loss / len(self.test_loader)
 
+    def save_model(self):
+        artifact_name = f"{self.model_name}-{self.run.id}-e{self.epoch:02d}"
+
+        model_path = self.model_root / f"{artifact_name}.pt"
+        torch.save(self.model.state_dict(), model_path)
+        self.run.log_artifact(model_path, type="model")
+
     def train(self, epochs: int = 10):
         total_steps = self.batch_size * len(self.train_loader) * epochs
 
@@ -104,6 +120,49 @@ class Trainer:
                         "test_loss": test_loss,
                     }
                 )
+                self.save_model()
+
                 print(
                     f"Epoch {epoch + 1}/{epochs}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}"
                 )
+                self.epoch += 1
+
+        self.run.finish()
+
+
+def main():
+    from dataset import GalaxyZooDecalsDataset
+    from model import EfficientNetZooModel
+    import torchvision.transforms.v2 as transforms
+
+    transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToDtype(torch.float32, scale=True),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
+    dataset = GalaxyZooDecalsDataset(
+        root="./Pierre/dataset", n_rows=1000, transform=transform
+    )
+    print(f"Dataset loaded with {len(dataset)} samples.")
+
+    train_dataset, test_dataset = random_split(dataset, [0.8, 0.2])
+
+    model = EfficientNetZooModel(output_labels=dataset.Y.columns)
+
+    trainer = Trainer(
+        model=model,
+        train_dataset=train_dataset,
+        test_dataset=test_dataset,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        batch_size=32,
+        lr=0.001,
+    )
+
+    trainer.train(epochs=10)
+
+
+if __name__ == "__main__":
+    main()
