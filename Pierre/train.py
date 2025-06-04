@@ -19,9 +19,11 @@ class Trainer:
         test_dataset: Dataset,
         device: Optional[str] = None,
         batch_size: int = 32,
-        lr: float = 0.001,
+        lr: float = 1e-4,
+        weight_decay: float = 1e-3,
         model_root: str = "./models",
         train_transform: Optional[nn.Module] = None,
+        problem_type: str = "multiclass",
     ):
         self.device = (
             device if device else "cuda" if torch.cuda.is_available() else "cpu"
@@ -30,10 +32,13 @@ class Trainer:
         self.model_name = model.__class__.__name__
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
-        self.batch_size = batch_size
-        self.lr = lr
         self.model_root = Path(model_root)
         self.model_root.mkdir(parents=True, exist_ok=True)
+
+        # Hyperparameters
+        self.batch_size = batch_size
+        self.lr = lr
+        self.weight_decay = weight_decay
 
         # WandB
         self.run = wandb.init(
@@ -43,15 +48,35 @@ class Trainer:
                 "batch_size": batch_size,
                 "learning_rate": lr,
                 "model": self.model_name,
+                "weight_decay": weight_decay,
+                "train_size": len(train_dataset),
+                "test_size": len(test_dataset),
+                "problem_type": problem_type,
             },
         )
 
         # Metrics
-        self.metrics = {
-            "accuracy": metrics.MultilabelAccuracy(),
-            "auprc": metrics.MultilabelAUPRC(num_labels=self.model.output_dim),
-            "top3_accuracy": metrics.TopKMultilabelAccuracy(k=3),
-        }
+        if problem_type == "multiclass":
+            self.metrics = {
+                "accuracy": metrics.MulticlassAccuracy(
+                    num_classes=self.model.output_dim
+                ),
+                "precision": metrics.MulticlassPrecision(
+                    num_classes=self.model.output_dim
+                ),
+                "recall": metrics.MulticlassRecall(num_classes=self.model.output_dim),
+                "f1_score": metrics.MulticlassF1Score(
+                    num_classes=self.model.output_dim
+                ),
+            }
+        elif problem_type == "multilabel":
+            self.metrics = {
+                "accuracy": metrics.MultilabelAccuracy(),
+                "auprc": metrics.MultilabelAUPRC(num_labels=self.model.output_dim),
+                "top3_accuracy": metrics.TopKMultilabelAccuracy(k=3),
+            }
+        else:
+            raise ValueError(f"Unsupported problem type: {problem_type}")
 
         # Data
         self.train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
@@ -61,10 +86,55 @@ class Trainer:
         self.train_transform = train_transform
 
         # Model
-        self.criterion = nn.BCEWithLogitsLoss()
-        self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+        if problem_type == "multiclass":
+            self.criterion = nn.CrossEntropyLoss()
+        elif problem_type == "multilabel":
+            self.criterion = nn.BCEWithLogitsLoss()
+        else:
+            raise ValueError(f"Unsupported problem type: {problem_type}")
+        self._create_optimizer()
 
         self.epoch = 0
+
+    def _create_optimizer(self):
+        """
+        Create the optimizer for the model.
+
+        Do not apply weight decay to batch normalization and bias parameters.
+        """
+        decay = set()
+        no_decay = set()
+
+        def group_parameters(module, prefix=""):
+            for name, param in module.named_parameters(recurse=False):
+                full_name = f"{prefix}.{name}" if prefix else name
+                if not param.requires_grad:
+                    continue
+                if "bias" in full_name or "bn" in full_name or "batchnorm" in full_name:
+                    no_decay.add(param)
+                else:
+                    decay.add(param)
+
+            for child_name, child_module in module.named_children():
+                group_parameters(
+                    child_module,
+                    prefix=f"{prefix}.{child_name}" if prefix else child_name,
+                )
+
+        group_parameters(self.model)
+
+        optimizer_grouped_parameters = [
+            {
+                "params": list(decay),
+                "weight_decay": self.weight_decay,
+            },
+            {
+                "params": list(no_decay),
+                "weight_decay": 0.0,
+            },
+        ]
+
+        self.optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
 
     def _train_step(self, X, Y):
         self.model.train()
@@ -165,7 +235,7 @@ class Trainer:
 
 
 def main():
-    from dataset import GalaxyZooDecalsDataset
+    from dataset import GalaxyZooClassDataset
     from model import EfficientNetZooModel
     import torchvision.transforms.v2 as transforms
 
@@ -184,26 +254,16 @@ def main():
         ]
     )
 
-    dataset = GalaxyZooDecalsDataset(
+    dataset = GalaxyZooClassDataset(
         root="./Pierre/dataset",
-        n_rows=None,
         transform=transform,
-        label_cols=[
-            "smooth-or-featured_smooth_debiased",
-            "smooth-or-featured_featured-or-disk_debiased",
-            "smooth-or-featured_artifact_debiased",
-            "disk-edge-on_yes_debiased",
-            "disk-edge-on_no_debiased",
-            "bar_strong_debiased",
-            "bar_weak_debiased",
-            "bar_no_debiased",
-        ],
+        n_rows=1000,
     )
     print(f"Dataset loaded with {len(dataset)} samples.")
 
     train_dataset, test_dataset = random_split(dataset, [0.8, 0.2])
 
-    model = EfficientNetZooModel(output_labels=dataset.Y.columns, dropout=0.5)
+    model = EfficientNetZooModel(output_labels=dataset.labels, dropout=0.5)
 
     trainer = Trainer(
         model=model,
@@ -212,7 +272,9 @@ def main():
         device="cuda" if torch.cuda.is_available() else "cpu",
         batch_size=32,
         lr=1e-4,
+        weight_decay=1e-3,
         train_transform=extra_train_transform,
+        problem_type="multiclass",
     )
 
     trainer.train(epochs=50)
