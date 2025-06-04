@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import wandb
 import torcheval.metrics as metrics
 
@@ -62,9 +63,6 @@ class Trainer:
         # Model
         self.criterion = nn.BCEWithLogitsLoss()
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer, T_0=len(self.train_loader), T_mult=2, eta_min=1e-6
-        )
 
         self.epoch = 0
 
@@ -81,7 +79,6 @@ class Trainer:
         loss = self.criterion(outputs, Y)
         loss.backward()
         self.optimizer.step()
-        self.scheduler.step()
 
         return loss.item()
 
@@ -155,7 +152,6 @@ class Trainer:
                     {
                         "epoch": epoch,
                         "train_loss": train_loss,
-                        "learning_rate": self.scheduler.get_last_lr()[0],
                     }
                     | eval_results
                 )
@@ -181,8 +177,11 @@ def main():
         ]
     )
 
-    extra_train_transform = transforms.AutoAugment(
-        policy=transforms.AutoAugmentPolicy.IMAGENET
+    extra_train_transform = transforms.Compose(
+        [
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+        ]
     )
 
     dataset = GalaxyZooDecalsDataset(
@@ -204,15 +203,15 @@ def main():
 
     train_dataset, test_dataset = random_split(dataset, [0.8, 0.2])
 
-    model = EfficientNetZooModel(output_labels=dataset.Y.columns)
+    model = EfficientNetZooModel(output_labels=dataset.Y.columns, dropout=0.5)
 
     trainer = Trainer(
         model=model,
         train_dataset=train_dataset,
         test_dataset=test_dataset,
         device="cuda" if torch.cuda.is_available() else "cpu",
-        batch_size=48,
-        lr=0.001,
+        batch_size=32,
+        lr=1e-4,
         train_transform=extra_train_transform,
     )
 
