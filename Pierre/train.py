@@ -257,7 +257,7 @@ def main():
     dataset = GalaxyZooClassDataset(
         root="./Pierre/dataset",
         transform=transform,
-        n_rows=1000,
+        # n_rows=1000,
     )
     print(f"Dataset loaded with {len(dataset)} samples.")
 
