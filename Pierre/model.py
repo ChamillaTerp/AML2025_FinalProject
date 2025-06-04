@@ -8,15 +8,11 @@ from typing import Sequence
 
 
 class EfficientNetZooModel(nn.Module):
-    def __init__(
-        self, output_labels: Sequence, dropout: float = 0.5, hidden_dim: int = 512
-    ):
+    def __init__(self, output_labels: Sequence, dropout: float = 0.5):
         super(EfficientNetZooModel, self).__init__()
 
         self.output_names = output_labels
         self.output_dim = len(output_labels)
-        self.hidden_dim = hidden_dim
-
         self.features = torchvision.models.efficientnet_v2_m().features
 
         for param in self.features.parameters():
@@ -25,9 +21,7 @@ class EfficientNetZooModel(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(1280, self.hidden_dim),
-            nn.SiLU(inplace=True),
-            nn.Linear(self.hidden_dim, self.output_dim),
+            nn.Linear(1280, self.output_dim),
         )
 
         for m in self.classifier.modules():
