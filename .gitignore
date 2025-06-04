@@ -247,4 +247,6 @@ $RECYCLE.BIN/
 ### Ekstra
 *.csv
 dataset/
+wandb/
+models/
 *.png
