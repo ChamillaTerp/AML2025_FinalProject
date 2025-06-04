@@ -211,9 +211,9 @@ class Trainer:
                     loss = self._train_step(X, Y)
                     train_loss += loss
                     progress_bar.update(self.batch_size)
+                    progress_bar.set_postfix({"loss": loss})
 
                 train_loss /= len(self.train_loader)
-                progress_bar.set_postfix({"loss": train_loss})
 
                 eval_results = self.evaluate()
                 progress_bar.set_postfix({"test_loss": eval_results["test_loss"]})
