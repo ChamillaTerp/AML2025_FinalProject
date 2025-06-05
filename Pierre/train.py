@@ -41,6 +41,7 @@ class Trainer:
             device (Optional[str]): Device to run the model on ("cuda" or "cpu").
             epochs (int): Number of epochs to train the model.
             lr (float): Learning rate for the optimizer.
+            lr_cosine (bool): Whether to use cosine annealing for learning rate scheduling.
             weight_decay (float): Weight decay for the optimizer.
             freeze_blocks (int): Number of blocks to freeze in the model.
             model_root (str): Directory to save the trained models.
@@ -320,26 +321,25 @@ def main():
     dataset = GalaxyZooClassDataset(
         root="./Pierre/dataset",
         transform=transform,
-        # n_rows=1000,
+        n_rows=10000,
     )
     print(f"Dataset loaded with {len(dataset)} samples.")
 
     train_dataset, test_dataset = random_split(dataset, [0.8, 0.2])
 
-    model = EfficientNetZooModel(
-        output_labels=dataset.labels, dropout=0.5, freeze_blocks=4
-    )
+    model = EfficientNetZooModel(output_labels=dataset.labels, dropout=0.5)
 
     trainer = Trainer(
         model=model,
         train_dataset=train_dataset,
         test_dataset=test_dataset,
-        batch_size=48,
+        batch_size=128,
         lr=1e-3,
         weight_decay=1e-2,
-        train_transform=extra_train_transform,
+        freeze_blocks=0,
+        # train_transform=extra_train_transform,
         problem_type="multiclass",
-        epochs=10,
+        epochs=25,
         lr_cosine=True,
         use_amp=True,
     )
