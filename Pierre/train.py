@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.amp as amp
 import wandb
 import torcheval.metrics as metrics
 
@@ -26,6 +27,7 @@ class Trainer:
         model_root: str = "./models",
         train_transform: Optional[nn.Module] = None,
         problem_type: str = "multiclass",
+        use_amp: bool = True,
     ):
         """
         Initializes the Trainer with the model, datasets, and hyperparameters.
@@ -42,6 +44,7 @@ class Trainer:
             model_root (str): Directory to save the trained models.
             train_transform (Optional[nn.Module]): Transformations to apply to training data.
             problem_type (str): Type of problem ("multiclass" or "multilabel").
+            use_amp (bool): Whether to use automatic mixed precision training.
         """
 
         if problem_type not in ["multiclass", "multilabel"]:
@@ -112,6 +115,9 @@ class Trainer:
         elif problem_type == "multilabel":
             self.criterion = nn.BCEWithLogitsLoss()
 
+        self.use_amp = use_amp
+        self.scaler = amp.GradScaler(enabled=self.use_amp)
+
         self.optimizer = self._create_optimizer()
 
         if lr_cosine:
@@ -161,7 +167,9 @@ class Trainer:
             },
         ]
 
-        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
+        # Use a higher epsilon for numerical stability with mixed precision
+        eps = 1e-7 if self.use_amp else 1e-8
+        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.lr, eps=eps)
 
         return optimizer
 
@@ -174,10 +182,16 @@ class Trainer:
             X = self.train_transform(X)
 
         self.optimizer.zero_grad()
-        outputs = self.model(X)
-        loss = self.criterion(outputs, Y)
-        loss.backward()
-        self.optimizer.step()
+
+        with amp.autocast(
+            enabled=self.use_amp, dtype=torch.bfloat16, device_type=self.device
+        ):
+            outputs = self.model(X)
+            loss = self.criterion(outputs, Y)
+
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
 
         if self.scheduler:
             self.scheduler.step()
@@ -189,7 +203,12 @@ class Trainer:
         X = X.to(self.device)
         Y = Y.to(self.device)
 
-        with torch.inference_mode():
+        with (
+            torch.inference_mode(),
+            amp.autocast(
+                enabled=self.use_amp, dtype=torch.bfloat16, device_type=self.device
+            ),
+        ):
             outputs = self.model(X)
             loss = self.criterion(outputs, Y)
 
