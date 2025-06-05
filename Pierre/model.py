@@ -8,9 +8,7 @@ from typing import Sequence
 
 
 class EfficientNetZooModel(nn.Module):
-    def __init__(
-        self, output_labels: Sequence, dropout: float = 0.5, freeze_blocks: int = 0
-    ):
+    def __init__(self, output_labels: Sequence, dropout: float = 0.5):
         """
         Initializes the EfficientNet model with specified output labels and dropout.
 
@@ -27,9 +25,6 @@ class EfficientNetZooModel(nn.Module):
 
         for param in self.features.parameters():
             param.requires_grad = True
-
-        if freeze_blocks > 0:
-            self._freeze_blocks(freeze_blocks)
 
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
@@ -50,7 +45,7 @@ class EfficientNetZooModel(nn.Module):
                 nn.init.uniform_(m.weight, -init_range, init_range)
                 nn.init.zeros_(m.bias)
 
-    def _freeze_blocks(self, num_blocks: int):
+    def freeze_blocks(self, num_blocks: int):
         """
         Freeze the first `num_blocks` blocks of the EfficientNet model.
         """

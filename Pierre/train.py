@@ -24,6 +24,7 @@ class Trainer:
         lr: float = 1e-4,
         lr_cosine: bool = False,
         weight_decay: float = 1e-3,
+        freeze_blocks: int = 0,
         model_root: str = "./models",
         train_transform: Optional[nn.Module] = None,
         problem_type: str = "multiclass",
@@ -41,6 +42,7 @@ class Trainer:
             epochs (int): Number of epochs to train the model.
             lr (float): Learning rate for the optimizer.
             weight_decay (float): Weight decay for the optimizer.
+            freeze_blocks (int): Number of blocks to freeze in the model.
             model_root (str): Directory to save the trained models.
             train_transform (Optional[nn.Module]): Transformations to apply to training data.
             problem_type (str): Type of problem ("multiclass" or "multilabel").
@@ -78,6 +80,7 @@ class Trainer:
                 "train_size": len(train_dataset),
                 "test_size": len(test_dataset),
                 "problem_type": problem_type,
+                "freeze_blocks": freeze_blocks,
             },
         )
 
@@ -114,6 +117,9 @@ class Trainer:
         self.train_transform = train_transform
 
         # Model
+        if freeze_blocks > 0:
+            self.model.freeze_blocks(freeze_blocks)
+
         if problem_type == "multiclass":
             self.criterion = nn.CrossEntropyLoss()
         elif problem_type == "multilabel":
