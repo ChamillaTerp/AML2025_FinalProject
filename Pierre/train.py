@@ -221,9 +221,7 @@ class Trainer:
     def save_model(self):
         model_path = self.model_root / f"{self.model_name}.pt"
         torch.save(self.model.state_dict(), model_path)
-        self.run.log_artifact(
-            model_path, type="model", name=f"{self.model_name}:{self.epoch}"
-        )
+        self.run.log_artifact(model_path, type="model", name=f"{self.model_name}")
 
     def train(self):
         print(f"Training {self.model_name} for {self.epochs} epochs...")
