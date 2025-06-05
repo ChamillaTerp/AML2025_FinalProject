@@ -103,8 +103,12 @@ class Trainer:
             }
 
         # Data
-        self.train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-        self.test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        self.train_loader = DataLoader(
+            train_dataset, batch_size=self.batch_size, shuffle=True
+        )
+        self.test_loader = DataLoader(
+            test_dataset, batch_size=self.batch_size, shuffle=False
+        )
 
         # Transforms
         self.train_transform = train_transform
