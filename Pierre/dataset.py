@@ -68,7 +68,7 @@ class GalaxyZooClassDataset(BaseGalaxyZooDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.labels = ["elliptical", "spiral", "irregular"]
+        self.labels = ["merger", "elliptical", "spiral", "irregular"]
 
     def select_columns(self) -> pl.DataFrame:
         return self.df.select(pl.col("galaxy_class_int")).to_series()
