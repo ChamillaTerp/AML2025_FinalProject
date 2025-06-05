@@ -8,7 +8,17 @@ from typing import Sequence
 
 
 class EfficientNetZooModel(nn.Module):
-    def __init__(self, output_labels: Sequence, dropout: float = 0.5):
+    def __init__(
+        self, output_labels: Sequence, dropout: float = 0.5, freeze_blocks: int = 0
+    ):
+        """
+        Initializes the EfficientNet model with specified output labels and dropout.
+
+        Args:
+            output_labels (Sequence): List of output labels for the classification task.
+            dropout (float): Dropout rate for the classifier.
+            freeze_blocks (int): Number of blocks to freeze in the EfficientNet model.
+        """
         super(EfficientNetZooModel, self).__init__()
 
         self.output_names = output_labels
@@ -17,6 +27,9 @@ class EfficientNetZooModel(nn.Module):
 
         for param in self.features.parameters():
             param.requires_grad = True
+
+        if freeze_blocks > 0:
+            self._freeze_blocks(freeze_blocks)
 
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
@@ -36,6 +49,15 @@ class EfficientNetZooModel(nn.Module):
                 init_range = 1.0 / math.sqrt(m.out_features)
                 nn.init.uniform_(m.weight, -init_range, init_range)
                 nn.init.zeros_(m.bias)
+
+    def _freeze_blocks(self, num_blocks: int):
+        """
+        Freeze the first `num_blocks` blocks of the EfficientNet model.
+        """
+        blocks = list(self.features.children())
+        for block in blocks[:num_blocks]:
+            for param in block.parameters():
+                param.requires_grad = False
 
     def forward(self, x):
         x = self.features(x)

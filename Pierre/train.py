@@ -17,14 +17,36 @@ class Trainer:
         model: nn.Module,
         train_dataset: Dataset,
         test_dataset: Dataset,
-        device: Optional[str] = None,
         batch_size: int = 32,
+        device: Optional[str] = None,
+        epochs: int = 10,
         lr: float = 1e-4,
+        lr_cosine: bool = False,
         weight_decay: float = 1e-3,
         model_root: str = "./models",
         train_transform: Optional[nn.Module] = None,
         problem_type: str = "multiclass",
     ):
+        """
+        Initializes the Trainer with the model, datasets, and hyperparameters.
+
+        Args:
+            model (nn.Module): The model to be trained.
+            train_dataset (Dataset): The training dataset.
+            test_dataset (Dataset): The testing dataset.
+            batch_size (int): Batch size for training and evaluation.
+            device (Optional[str]): Device to run the model on ("cuda" or "cpu").
+            epochs (int): Number of epochs to train the model.
+            lr (float): Learning rate for the optimizer.
+            weight_decay (float): Weight decay for the optimizer.
+            model_root (str): Directory to save the trained models.
+            train_transform (Optional[nn.Module]): Transformations to apply to training data.
+            problem_type (str): Type of problem ("multiclass" or "multilabel").
+        """
+
+        if problem_type not in ["multiclass", "multilabel"]:
+            raise ValueError(f"Unsupported problem type: {problem_type}")
+
         self.device = (
             device if device else "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -39,6 +61,7 @@ class Trainer:
         self.batch_size = batch_size
         self.lr = lr
         self.weight_decay = weight_decay
+        self.epochs = epochs
 
         # WandB
         self.run = wandb.init(
@@ -75,8 +98,6 @@ class Trainer:
                 "auprc": metrics.MultilabelAUPRC(num_labels=self.model.output_dim),
                 "top3_accuracy": metrics.TopKMultilabelAccuracy(k=3),
             }
-        else:
-            raise ValueError(f"Unsupported problem type: {problem_type}")
 
         # Data
         self.train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
@@ -90,13 +111,19 @@ class Trainer:
             self.criterion = nn.CrossEntropyLoss()
         elif problem_type == "multilabel":
             self.criterion = nn.BCEWithLogitsLoss()
+
+        self.optimizer = self._create_optimizer()
+
+        if lr_cosine:
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=epochs * len(self.train_loader), eta_min=0.0
+            )
         else:
-            raise ValueError(f"Unsupported problem type: {problem_type}")
-        self._create_optimizer()
+            self.scheduler = None
 
         self.epoch = 0
 
-    def _create_optimizer(self):
+    def _create_optimizer(self) -> torch.optim.Optimizer:
         """
         Create the optimizer for the model.
 
@@ -134,7 +161,9 @@ class Trainer:
             },
         ]
 
-        self.optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
+        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=self.lr)
+
+        return optimizer
 
     def _train_step(self, X, Y):
         self.model.train()
@@ -149,6 +178,9 @@ class Trainer:
         loss = self.criterion(outputs, Y)
         loss.backward()
         self.optimizer.step()
+
+        if self.scheduler:
+            self.scheduler.step()
 
         return loss.item()
 
@@ -187,23 +219,23 @@ class Trainer:
         return metrics_results
 
     def save_model(self):
-        artifact_name = f"{self.model_name}-{self.run.id}-e{self.epoch:02d}"
-
-        model_path = self.model_root / f"{artifact_name}.pt"
+        model_path = self.model_root / f"{self.model_name}.pt"
         torch.save(self.model.state_dict(), model_path)
-        self.run.log_artifact(model_path, type="model")
+        self.run.log_artifact(
+            model_path, type="model", name=f"{self.model_name}:{self.epoch}"
+        )
 
-    def train(self, epochs: int = 10):
-        print(f"Training {self.model_name} for {epochs} epochs...")
+    def train(self):
+        print(f"Training {self.model_name} for {self.epochs} epochs...")
         print(f"Training on {len(self.train_loader)} batches of size {self.batch_size}")
-        total_steps = self.batch_size * len(self.train_loader) * epochs
+        total_steps = self.batch_size * len(self.train_loader) * self.epochs
 
         with tqdm(
             total=total_steps,
             desc="Training",
             unit="img",
         ) as progress_bar:
-            for epoch in range(epochs):
+            for epoch in range(self.epochs):
                 self.epoch += 1
 
                 train_loss = 0.0
@@ -211,7 +243,7 @@ class Trainer:
                     loss = self._train_step(X, Y)
                     train_loss += loss
                     progress_bar.update(self.batch_size)
-                    progress_bar.set_postfix({"loss": loss})
+                    progress_bar.set_postfix({"loss": f"{loss:.3f}"})
 
                 train_loss /= len(self.train_loader)
 
@@ -222,13 +254,16 @@ class Trainer:
                     {
                         "epoch": epoch,
                         "train_loss": train_loss,
+                        "learning_rate": self.scheduler.get_last_lr()[0]
+                        if self.scheduler
+                        else self.lr,
                     }
                     | eval_results
                 )
                 self.save_model()
 
                 print(
-                    f"Epoch {epoch}/{epochs}, Train Loss: {train_loss:.4f}, Test Loss: {eval_results['test_loss']:.4f}"
+                    f"Epoch {epoch}/{self.epochs}, Train Loss: {train_loss:.4f}, Test Loss: {eval_results['test_loss']:.4f}"
                 )
 
         self.run.finish()
@@ -257,27 +292,29 @@ def main():
     dataset = GalaxyZooClassDataset(
         root="./Pierre/dataset",
         transform=transform,
-        # n_rows=1000,
     )
     print(f"Dataset loaded with {len(dataset)} samples.")
 
     train_dataset, test_dataset = random_split(dataset, [0.8, 0.2])
 
-    model = EfficientNetZooModel(output_labels=dataset.labels, dropout=0.5)
+    model = EfficientNetZooModel(
+        output_labels=dataset.labels, dropout=0.5, freeze_blocks=4
+    )
 
     trainer = Trainer(
         model=model,
         train_dataset=train_dataset,
         test_dataset=test_dataset,
-        device="cuda" if torch.cuda.is_available() else "cpu",
         batch_size=32,
-        lr=1e-4,
-        weight_decay=1e-3,
-        train_transform=extra_train_transform,
+        lr=1e-3,
+        weight_decay=1e-2,
+        # train_transform=extra_train_transform,
         problem_type="multiclass",
+        epochs=10,
+        lr_cosine=True,
     )
 
-    trainer.train(epochs=50)
+    trainer.train()
 
 
 if __name__ == "__main__":
