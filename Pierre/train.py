@@ -303,12 +303,14 @@ def main():
         [
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
+            transforms.RandomRotation(degrees=90),
         ]
     )
 
     dataset = GalaxyZooClassDataset(
         root="./Pierre/dataset",
         transform=transform,
+        # n_rows=1000,
     )
     print(f"Dataset loaded with {len(dataset)} samples.")
 
@@ -322,13 +324,14 @@ def main():
         model=model,
         train_dataset=train_dataset,
         test_dataset=test_dataset,
-        batch_size=32,
+        batch_size=48,
         lr=1e-3,
         weight_decay=1e-2,
-        # train_transform=extra_train_transform,
+        train_transform=extra_train_transform,
         problem_type="multiclass",
         epochs=10,
         lr_cosine=True,
+        use_amp=True,
     )
 
     trainer.train()
