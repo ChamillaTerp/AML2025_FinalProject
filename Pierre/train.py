@@ -22,7 +22,7 @@ class Trainer:
         device: Optional[str] = None,
         epochs: int = 10,
         lr: float = 1e-4,
-        lr_cosine: bool = False,
+        lr_scheduler: Optional[str] = None,
         weight_decay: float = 1e-3,
         freeze_blocks: int = 0,
         model_root: str = "./models",
@@ -41,7 +41,7 @@ class Trainer:
             device (Optional[str]): Device to run the model on ("cuda" or "cpu").
             epochs (int): Number of epochs to train the model.
             lr (float): Learning rate for the optimizer.
-            lr_cosine (bool): Whether to use cosine annealing for learning rate scheduling.
+            lr_sheduler (Optional[str]): Type of learning rate scheduler to use (e.g., "cosine").
             weight_decay (float): Weight decay for the optimizer.
             freeze_blocks (int): Number of blocks to freeze in the model.
             model_root (str): Directory to save the trained models.
@@ -76,6 +76,7 @@ class Trainer:
             config={
                 "batch_size": batch_size,
                 "learning_rate": lr,
+                "learning_rate_scheduler": lr_scheduler,
                 "model": self.model_name,
                 "weight_decay": weight_decay,
                 "train_size": len(train_dataset),
@@ -131,9 +132,25 @@ class Trainer:
 
         self.optimizer = self._create_optimizer()
 
-        if lr_cosine:
+        if lr_scheduler == "cosine":
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 self.optimizer, T_max=epochs * len(self.train_loader), eta_min=0.0
+            )
+        elif lr_scheduler == "cosine_warmup":
+            total_steps = epochs * len(self.train_loader)
+            warmup_steps = int(0.1 * total_steps)
+
+            warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+                self.optimizer, start_factor=1e-3, total_iters=warmup_steps
+            )
+            cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=total_steps - warmup_steps
+            )
+
+            self.scheduler = torch.optim.lr_scheduler.SequentialLR(
+                self.optimizer,
+                schedulers=[warmup_scheduler, cosine_scheduler],
+                milestones=[warmup_steps],
             )
         else:
             self.scheduler = None
@@ -314,7 +331,9 @@ def main():
         [
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
-            transforms.RandomRotation(degrees=90),
+            transforms.AutoAugment(
+                policy=transforms.AutoAugmentPolicy.IMAGENET,
+            ),
         ]
     )
 
@@ -337,10 +356,10 @@ def main():
         lr=1e-3,
         weight_decay=1e-2,
         freeze_blocks=0,
-        # train_transform=extra_train_transform,
+        train_transform=extra_train_transform,
         problem_type="multiclass",
         epochs=25,
-        lr_cosine=True,
+        lr_scheduler="cosine_warmup",
         use_amp=True,
     )
 
