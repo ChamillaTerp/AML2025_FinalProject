@@ -250,3 +250,4 @@ dataset/
 wandb/
 models/
 *.png
+lightning_logs/
