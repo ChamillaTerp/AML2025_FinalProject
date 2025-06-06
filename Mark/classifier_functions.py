@@ -21,7 +21,7 @@ class GalaxyDataGenerator(Sequence):
         batch_df = self.df.iloc[idxs]
 
         X = np.zeros((len(batch_df), *self.input_shape, 3), dtype=np.float32)
-        y = np.zeros((len(batch_df), 6), dtype=np.float32)  # 6 categories
+        y = np.zeros((len(batch_df), 5), dtype=np.float32)  # 5 vote fractions
 
         for i, row in enumerate(batch_df.itertuples()):
             name = row.iauname
@@ -30,7 +30,7 @@ class GalaxyDataGenerator(Sequence):
             try:
                 img = Image.open(img_path).convert('RGB').resize(self.input_shape)
                 X[i] = np.array(img) / 255.0
-                y[i] = self.encode_label(row.classification)
+                y[i] = np.array([row.elliptical, row.lenticular, row.spiral, row.irregular, row.artifact])
             except:
                 continue  # skip missing or corrupt images
 
@@ -41,7 +41,7 @@ class GalaxyDataGenerator(Sequence):
             np.random.shuffle(self.indexes)
 
     def encode_label(self, label):
-        classes = ['spiral', 'elliptical', 'edge-on-disk', 'irregular', 'artifact', 'uncertain']
+        classes = ['elliptical', 'lenticular', 'spiral', 'irregular', 'artifact']
         one_hot = np.zeros(len(classes))
         if label in classes:
             one_hot[classes.index(label)] = 1.0
