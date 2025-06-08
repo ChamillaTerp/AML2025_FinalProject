@@ -3,13 +3,16 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as L
 
-# Wrapping the model in a PyTorch Lightning module
 class LitGalaxyModel(L.LightningModule):
     def __init__(self, model, criterion, learning_rate = 0.001):
         super().__init__()
-        self.model = model                                                  # The CNN model                   
-        self.criterion = criterion                                          # The loss function               
-        self.save_hyperparameters(ignore = ['model', 'criterion'])          # Save hyperparameters except the model and criterion itself
+        self.model = model
+        self.criterion = criterion
+        self.save_hyperparameters(ignore = ['model', 'criterion'])
+
+        # Add lists to store loss values
+        self.train_losses = []
+        self.val_losses = []
 
     def forward(self, x):
         return self.model(x)
@@ -18,6 +21,8 @@ class LitGalaxyModel(L.LightningModule):
         images, labels = batch
         outputs = self(images)
         loss = self.criterion(outputs, labels)
+
+        self.train_losses.append(loss.item())  # <-- Save the loss
         self.log('train_loss', loss, prog_bar = True)
         return loss
 
@@ -25,6 +30,8 @@ class LitGalaxyModel(L.LightningModule):
         images, labels = batch
         outputs = self(images)
         loss = self.criterion(outputs, labels)
+
+        self.val_losses.append(loss.item())  # <-- Save the loss
         self.log('val_loss', loss, prog_bar = True)
 
     def configure_optimizers(self):
