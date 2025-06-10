@@ -60,3 +60,18 @@ class EfficientNetZooModel(nn.Module):
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
+
+    def predict(self, x):
+        """
+        Predicts the output labels for the input tensor `x`.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Predicted output labels.
+        """
+        with torch.no_grad():
+            x = self.forward(x)
+            x = F.softmax(x, dim=1)
+            return x
