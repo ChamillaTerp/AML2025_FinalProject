@@ -138,7 +138,7 @@ class Trainer:
             )
         elif lr_scheduler == "cosine_warmup":
             total_steps = epochs * len(self.train_loader)
-            warmup_steps = int(0.1 * total_steps)
+            warmup_steps = len(self.train_loader)
 
             warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
                 self.optimizer, start_factor=1e-3, total_iters=warmup_steps
@@ -353,8 +353,8 @@ def main():
         train_dataset=train_dataset,
         test_dataset=test_dataset,
         batch_size=128,
-        lr=1e-3,
-        weight_decay=1e-2,
+        lr=1e-4,
+        weight_decay=1e-3,
         freeze_blocks=0,
         train_transform=extra_train_transform,
         problem_type="multiclass",
